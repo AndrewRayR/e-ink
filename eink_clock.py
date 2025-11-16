@@ -299,9 +299,9 @@ class ClockApp(App):
                 image = Image.new('1', (self.display.width, self.display.height), 255)
                 draw = ImageDraw.Draw(image)
                 
-                # Draw date at top
+                # Draw date at top (bigger)
                 date_str = now.strftime('%a, %b %d, %Y')
-                self.draw_text_centered(draw, date_str, 5, None, 14)
+                self.draw_text_centered(draw, date_str, 5, None, 18)
                 
                 # Draw time with 7-segment display
                 time_str = now.strftime('%I:%M')
@@ -309,14 +309,18 @@ class ClockApp(App):
                 if time_str[0] == '0':
                     time_str = ' ' + time_str[1:]
                 
-                # Calculate starting x position to center the time
+                # Calculate starting x position to center the time (shifted left for AM/PM)
                 time_width = len(time_str) * 30 - 20  # Rough calculation
-                start_x = (self.display.width - time_width) // 2
+                start_x = (self.display.width - time_width) // 2 - 20
                 self.draw_7segment_time(draw, time_str, start_x, 35)
                 
-                # Draw AM/PM
+                # Draw AM/PM to the right of the time
                 ampm = now.strftime('%p')
-                self.draw_text_centered(draw, ampm, 95, None, 16)
+                try:
+                    ampm_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+                except:
+                    ampm_font = ImageFont.load_default()
+                draw.text((start_x + time_width + 10, 50), ampm, font=ampm_font, fill=0)
                 
                 # Display on screen (partial refresh)
                 self.display.show(image, partial=True)
@@ -336,17 +340,52 @@ class MainMenuApp(App):
         super().__init__(display, keyboard, notes_manager)
         self.selected = 0  # 0-7 for the 8 apps
         
-        # Define apps
+        # Define apps (icons will be drawn graphically)
         self.apps = [
-            {'num': 1, 'name': 'Clock', 'icon': '⏰'},
-            {'num': 2, 'name': 'Notes', 'icon': '📝'},
-            {'num': 3, 'name': '?', 'icon': '?'},
-            {'num': 4, 'name': '?', 'icon': '?'},
-            {'num': 5, 'name': '?', 'icon': '?'},
-            {'num': 6, 'name': '?', 'icon': '?'},
-            {'num': 7, 'name': '?', 'icon': '?'},
-            {'num': 8, 'name': '?', 'icon': '?'},
+            {'num': 1, 'name': 'Clock', 'icon_type': 'clock'},
+            {'num': 2, 'name': 'Notes', 'icon_type': 'notes'},
+            {'num': 3, 'name': '?', 'icon_type': 'placeholder'},
+            {'num': 4, 'name': '?', 'icon_type': 'placeholder'},
+            {'num': 5, 'name': '?', 'icon_type': 'placeholder'},
+            {'num': 6, 'name': '?', 'icon_type': 'placeholder'},
+            {'num': 7, 'name': '?', 'icon_type': 'placeholder'},
+            {'num': 8, 'name': '?', 'icon_type': 'placeholder'},
         ]
+    
+    def draw_clock_icon(self, draw, x, y, size=20):
+        """Draw a simple clock icon"""
+        center_x = x + size // 2
+        center_y = y + size // 2
+        radius = size // 2
+        
+        # Clock circle
+        draw.ellipse([x, y, x + size, y + size], outline=0, width=2)
+        
+        # Hour hand (pointing to 3)
+        draw.line([center_x, center_y, center_x + radius - 5, center_y], fill=0, width=2)
+        
+        # Minute hand (pointing to 12)
+        draw.line([center_x, center_y, center_x, center_y - radius + 3], fill=0, width=2)
+    
+    def draw_notes_icon(self, draw, x, y, size=20):
+        """Draw a simple notepad/paper icon"""
+        # Paper outline
+        draw.rectangle([x, y, x + size, y + size + 4], outline=0, width=2)
+        
+        # Lines on paper
+        line_y = y + 6
+        for i in range(3):
+            draw.line([x + 3, line_y, x + size - 3, line_y], fill=0, width=1)
+            line_y += 5
+    
+    def draw_placeholder_icon(self, draw, x, y, size=20):
+        """Draw a question mark icon"""
+        try:
+            fnt = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+        except:
+            fnt = ImageFont.load_default()
+        
+        draw.text((x, y), "?", font=fnt, fill=0)
     
     def draw_menu(self):
         """Draw the main menu"""
@@ -379,18 +418,17 @@ class MainMenuApp(App):
             
             draw.text((x+5, y+5), str(app['num']), font=fnt, fill=0)
             
-            # Draw app name
-            try:
-                fnt_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
-            except:
-                fnt_name = ImageFont.load_default()
+            # Draw app icon in center
+            icon_size = 20
+            icon_x = x + (cell_width - icon_size) // 2
+            icon_y = y + (cell_height - icon_size) // 2 - 5
             
-            # Center the name in the cell
-            name = app['name']
-            bbox = draw.textbbox((0, 0), name, font=fnt_name)
-            text_width = bbox[2] - bbox[0]
-            text_x = x + (cell_width - text_width) // 2
-            draw.text((text_x, y + cell_height - 20), name, font=fnt_name, fill=0)
+            if app['icon_type'] == 'clock':
+                self.draw_clock_icon(draw, icon_x, icon_y, icon_size)
+            elif app['icon_type'] == 'notes':
+                self.draw_notes_icon(draw, icon_x, icon_y, icon_size)
+            else:
+                self.draw_placeholder_icon(draw, icon_x, icon_y, icon_size)
         
         self.display.show(image)
     
@@ -544,7 +582,9 @@ class CreateNoteApp(App):
             else:
                 draw.text((5, 30), display_text, font=fnt, fill=0)
             
-            draw.text((5, 105), "ENTER=Done ESC=Cancel", font=fnt, fill=0)
+            # Bottom instructions - split left and right
+            draw.text((5, 105), "ENTER=Done", font=fnt, fill=0)
+            draw.text((165, 105), "ESC=Cancel", font=fnt, fill=0)
             
             self.display.show(image)
             
