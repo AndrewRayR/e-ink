@@ -148,7 +148,7 @@ class SettingsManager:
     def _load_settings(self):
         """Load settings from file"""
         defaults = {
-            'dark_mode': True,
+            'dark_mode': False,  # Light mode is now default
             'clock_format': 12,  # 12 or 24
             'date_format': 'long',  # 'long', 'short', 'iso'
             'refresh_mode': 'partial',  # 'partial' or 'full'
@@ -184,7 +184,7 @@ class SettingsManager:
     def reset_to_defaults(self):
         """Reset all settings to defaults"""
         self.settings = {
-            'dark_mode': True,
+            'dark_mode': False,  # Light mode default
             'clock_format': 12,
             'date_format': 'long',
             'refresh_mode': 'partial',
@@ -457,11 +457,11 @@ class MainMenuApp(App):
         self.apps = [
             {'num': 1, 'name': 'Clock', 'icon_type': 'clock'},
             {'num': 2, 'name': 'Notes', 'icon_type': 'notes'},
-            {'num': 3, 'name': '?', 'icon_type': 'placeholder'},
+            {'num': 3, 'name': 'Weather', 'icon_type': 'weather'},
             {'num': 4, 'name': '?', 'icon_type': 'placeholder'},
             {'num': 5, 'name': '?', 'icon_type': 'placeholder'},
             {'num': 6, 'name': '?', 'icon_type': 'placeholder'},
-            {'num': 7, 'name': 'Weather', 'icon_type': 'weather'},
+            {'num': 7, 'name': 'System', 'icon_type': 'system'},
             {'num': 8, 'name': 'Settings', 'icon_type': 'settings'},
         ]
     
@@ -529,6 +529,22 @@ class MainMenuApp(App):
         draw.ellipse([center_x - outer_radius + 2, center_y - outer_radius + 2,
                      center_x + outer_radius - 2, center_y + outer_radius - 2], outline=fill, width=1)
     
+    def draw_system_icon(self, draw, x, y, size=20, fill=0):
+        """Draw a system monitor icon (CPU/chip)"""
+        # Draw a simple chip/processor icon
+        # Main rectangle
+        draw.rectangle([x+4, y+4, x+size-4, y+size-4], outline=fill, width=2)
+        
+        # Connection pins on sides
+        # Left side
+        draw.line([x, y+6, x+4, y+6], fill=fill, width=1)
+        draw.line([x, y+10, x+4, y+10], fill=fill, width=1)
+        draw.line([x, y+14, x+4, y+14], fill=fill, width=1)
+        # Right side
+        draw.line([x+size-4, y+6, x+size, y+6], fill=fill, width=1)
+        draw.line([x+size-4, y+10, x+size, y+10], fill=fill, width=1)
+        draw.line([x+size-4, y+14, x+size, y+14], fill=fill, width=1)
+    
     def draw_placeholder_icon(self, draw, x, y, size=20, fill=0):
         """Draw a question mark icon"""
         try:
@@ -580,6 +596,8 @@ class MainMenuApp(App):
                 self.draw_notes_icon(draw, icon_x, icon_y, icon_size, fg)
             elif app['icon_type'] == 'weather':
                 self.draw_weather_icon(draw, icon_x, icon_y, icon_size, fg)
+            elif app['icon_type'] == 'system':
+                self.draw_system_icon(draw, icon_x, icon_y, icon_size, fg)
             elif app['icon_type'] == 'settings':
                 self.draw_settings_icon(draw, icon_x, icon_y, icon_size, fg)
             else:
@@ -628,8 +646,10 @@ class MainMenuApp(App):
                     return 'clock'
                 elif app_num == 2:
                     return 'notes_menu'
-                elif app_num == 7:
+                elif app_num == 3:
                     return 'weather'
+                elif app_num == 7:
+                    return 'system_monitor'
                 elif app_num == 8:
                     return 'settings'
                 else:
@@ -745,7 +765,8 @@ class CreateNoteApp(App):
             draw.text((5, 105), "ENTER=Done", font=fnt, fill=fg)
             draw.text((165, 105), "ESC=Cancel", font=fnt, fill=fg)
             
-            self.display.show(image)
+            # Use partial refresh for faster typing
+            self.display.show(image, partial=True)
             
             # Wait for key
             while True:
@@ -842,10 +863,11 @@ class ViewNotesApp(App):
         
         draw.text((5, 105), "ENTER=View ESC=Back", font=fnt, fill=fg)
         
-        self.display.show(image)
+        # Use partial refresh for faster navigation
+        self.display.show(image, partial=True)
     
     def view_note(self, note):
-        """Display a single note"""
+        """Display a single note with edit/delete options"""
         while True:
             image, fg = self.create_image()
             draw = ImageDraw.Draw(image)
@@ -869,23 +891,126 @@ class ViewNotesApp(App):
             chars_per_line = 35
             
             for i in range(0, len(content), chars_per_line):
-                if y > 90:
+                if y > 75:
                     draw.text((5, y), "...", font=fnt, fill=fg)
                     break
                 line = content[i:i+chars_per_line]
                 draw.text((5, y), line, font=fnt, fill=fg)
                 y += line_height
             
+            # Options at bottom
+            draw.text((5, 95), "E=Edit D=Delete", font=fnt, fill=fg)
             draw.text((5, 108), "ESC=Back", font=fnt, fill=fg)
             
-            self.display.show(image)
+            self.display.show(image, partial=True)
             
-            # Wait for ESC
+            # Wait for key
+            key = self.keyboard.get_key()
+            if key == 'ESC':
+                return
+            elif key == 'e' or key == 'E':
+                # Edit note
+                self.edit_note(note)
+                return
+            elif key == 'd' or key == 'D':
+                # Delete note
+                if self.confirm_delete():
+                    self.notes_manager.delete_note(note['id'])
+                return
+            time.sleep(0.1)
+    
+    def edit_note(self, note):
+        """Edit an existing note"""
+        # Get new title
+        title = self.get_text_input_with_default("Edit Title:", note['title'], 40)
+        if title is None:
+            return
+        
+        # Get new content
+        content = self.get_text_input_with_default("Edit Content:", note['content'], 200)
+        if content is None:
+            return
+        
+        # Update note
+        self.notes_manager.update_note(note['id'], title, content)
+        
+        # Show success
+        image, fg = self.create_image()
+        draw = ImageDraw.Draw(image)
+        self.draw_text_centered(draw, "Note Updated!", 50, None, 16, fg)
+        self.display.show(image)
+        time.sleep(1.5)
+    
+    def get_text_input_with_default(self, prompt, default_text, max_length=50):
+        """Get text input with pre-filled default text"""
+        text = default_text
+        
+        while True:
+            image, fg = self.create_image()
+            draw = ImageDraw.Draw(image)
+            
+            try:
+                fnt = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+            except:
+                fnt = ImageFont.load_default()
+            
+            draw.text((5, 5), prompt, font=fnt, fill=fg)
+            
+            # Show current text with cursor
+            display_text = text + "_"
+            # Wrap text if too long
+            if len(display_text) > 30:
+                line1 = display_text[:30]
+                line2 = display_text[30:60]
+                draw.text((5, 30), line1, font=fnt, fill=fg)
+                draw.text((5, 45), line2, font=fnt, fill=fg)
+            else:
+                draw.text((5, 30), display_text, font=fnt, fill=fg)
+            
+            draw.text((5, 105), "ENTER=Done", font=fnt, fill=fg)
+            draw.text((165, 105), "ESC=Cancel", font=fnt, fill=fg)
+            
+            self.display.show(image, partial=True)
+            
+            # Wait for key
             while True:
                 key = self.keyboard.get_key()
-                if key == 'ESC':
-                    return
-                time.sleep(0.1)
+                if key:
+                    break
+                time.sleep(0.05)
+            
+            if key == 'ENTER':
+                return text
+            elif key == 'ESC':
+                return None
+            elif key == 'BACKSPACE' and len(text) > 0:
+                text = text[:-1]
+            elif key and len(key) == 1 and len(text) < max_length:
+                text += key
+    
+    def confirm_delete(self):
+        """Confirm deletion"""
+        image, fg = self.create_image()
+        draw = ImageDraw.Draw(image)
+        
+        try:
+            fnt = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        except:
+            fnt = ImageFont.load_default()
+        
+        self.draw_text_centered(draw, "Delete Note?", 40, None, 14, fg)
+        draw.text((5, 95), "ENTER=Confirm", font=fnt, fill=fg)
+        draw.text((150, 95), "ESC=Cancel", font=fnt, fill=fg)
+        
+        self.display.show(image)
+        
+        while True:
+            key = self.keyboard.get_key()
+            if key == 'ENTER':
+                return True
+            elif key == 'ESC':
+                return False
+            time.sleep(0.1)
     
     def run(self):
         """View notes loop"""
@@ -943,10 +1068,10 @@ class WeatherApp(App):
         super().__init__(display, keyboard, notes_manager, settings_manager)
     
     def get_weather(self, zip_code):
-        """Fetch weather data from wttr.in"""
+        """Fetch weather data from wttr.in using US ZIP code"""
         try:
-            # Using wttr.in - no API key needed
-            url = f"http://wttr.in/{zip_code}?format=j1"
+            # For US ZIP codes, we need to add "USA" to help wttr.in locate it correctly
+            url = f"http://wttr.in/{zip_code},USA?format=j1"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 return response.json()
@@ -1012,9 +1137,17 @@ class WeatherApp(App):
             current = weather_data['current_condition'][0]
             today = weather_data['weather'][0]
             
-            # Title
-            location = weather_data['nearest_area'][0]['areaName'][0]['value']
-            draw.text((5, 2), f"Weather: {location}", font=fnt_title, fill=fg)
+            # Title with location
+            location_data = weather_data['nearest_area'][0]
+            city = location_data.get('areaName', [{}])[0].get('value', '')
+            state = location_data.get('region', [{}])[0].get('value', '')
+            
+            # Wrap location text if too long
+            location_text = f"{city}, {state}" if state else city
+            if len(location_text) > 25:
+                location_text = location_text[:22] + "..."
+            
+            draw.text((5, 2), location_text, font=fnt_title, fill=fg)
             
             # Current conditions
             temp_f = current['temp_F']
@@ -1023,28 +1156,46 @@ class WeatherApp(App):
             humidity = current['humidity']
             wind_mph = current['windspeedMiles']
             
-            y = 20
+            y = 18
             draw.text((5, y), f"Now: {temp_f}F (feels {feels_like}F)", font=fnt, fill=fg)
             y += 12
-            draw.text((5, y), f"{condition}", font=fnt, fill=fg)
-            y += 12
+            
+            # Wrap condition text if too long
+            if len(condition) > 35:
+                # Split into two lines
+                words = condition.split()
+                line1 = ""
+                line2 = ""
+                for word in words:
+                    if len(line1 + word) < 35:
+                        line1 += word + " "
+                    else:
+                        line2 += word + " "
+                draw.text((5, y), line1.strip(), font=fnt, fill=fg)
+                y += 12
+                if line2:
+                    draw.text((5, y), line2.strip(), font=fnt, fill=fg)
+                    y += 12
+            else:
+                draw.text((5, y), condition, font=fnt, fill=fg)
+                y += 12
+            
             draw.text((5, y), f"Humidity: {humidity}%", font=fnt, fill=fg)
             y += 12
             draw.text((5, y), f"Wind: {wind_mph} mph", font=fnt, fill=fg)
             
             # Today's forecast
-            y += 15
+            y += 14
             high = today['maxtempF']
             low = today['mintempF']
-            draw.text((5, y), f"Today: High {high}F / Low {low}F", font=fnt, fill=fg)
+            draw.text((5, y), f"Today: {high}F/{low}F", font=fnt, fill=fg)
             
-            # Tomorrow's forecast
-            if len(weather_data['weather']) > 1:
+            # Tomorrow's forecast if space allows
+            if len(weather_data['weather']) > 1 and y < 90:
                 tomorrow = weather_data['weather'][1]
                 y += 12
                 tom_high = tomorrow['maxtempF']
                 tom_low = tomorrow['mintempF']
-                tom_cond = tomorrow['hourly'][4]['weatherDesc'][0]['value']
                 draw.text((5, y), f"Tomorrow: {tom_high}F/{tom_low}F", font=fnt, fill=fg)
             
             draw.text((5, 108), "ESC=Back", font=fnt, fill=fg)
@@ -1056,6 +1207,150 @@ class WeatherApp(App):
             if key == 'ESC':
                 return 'main_menu'
             time.sleep(0.1)
+
+
+class SystemMonitorApp(App):
+    """System monitor showing CPU, memory, temperature"""
+    def __init__(self, display, keyboard, notes_manager, settings_manager):
+        super().__init__(display, keyboard, notes_manager, settings_manager)
+    
+    def get_cpu_temp(self):
+        """Get CPU temperature"""
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+                temp = float(f.read().strip()) / 1000.0
+                return f"{temp:.1f}C"
+        except:
+            return "N/A"
+    
+    def get_cpu_usage(self):
+        """Get CPU usage percentage"""
+        try:
+            with open('/proc/stat', 'r') as f:
+                line = f.readline()
+                values = [int(x) for x in line.split()[1:]]
+                total = sum(values)
+                idle = values[3]
+                if not hasattr(self, '_prev_total'):
+                    self._prev_total = total
+                    self._prev_idle = idle
+                    return "0.0%"
+                
+                diff_total = total - self._prev_total
+                diff_idle = idle - self._prev_idle
+                usage = 100.0 * (diff_total - diff_idle) / diff_total if diff_total > 0 else 0
+                
+                self._prev_total = total
+                self._prev_idle = idle
+                return f"{usage:.1f}%"
+        except:
+            return "N/A"
+    
+    def get_memory_info(self):
+        """Get memory usage"""
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                lines = f.readlines()
+                mem_total = int(lines[0].split()[1])
+                mem_free = int(lines[1].split()[1])
+                mem_available = int(lines[2].split()[1])
+                
+                mem_used = mem_total - mem_available
+                mem_percent = (mem_used / mem_total) * 100
+                
+                return f"{mem_used//1024}MB/{mem_total//1024}MB ({mem_percent:.1f}%)"
+        except:
+            return "N/A"
+    
+    def get_disk_usage(self):
+        """Get disk usage"""
+        try:
+            import subprocess
+            result = subprocess.check_output(['df', '-h', '/']).decode('utf-8')
+            lines = result.strip().split('\n')
+            if len(lines) > 1:
+                parts = lines[1].split()
+                used = parts[2]
+                total = parts[1]
+                percent = parts[4]
+                return f"{used}/{total} ({percent})"
+        except:
+            return "N/A"
+    
+    def get_uptime(self):
+        """Get system uptime"""
+        try:
+            with open('/proc/uptime', 'r') as f:
+                uptime_seconds = float(f.read().split()[0])
+                hours = int(uptime_seconds // 3600)
+                minutes = int((uptime_seconds % 3600) // 60)
+                
+                if hours > 24:
+                    days = hours // 24
+                    hours = hours % 24
+                    return f"{days}d {hours}h {minutes}m"
+                else:
+                    return f"{hours}h {minutes}m"
+        except:
+            return "N/A"
+    
+    def run(self):
+        """Display system information"""
+        while True:
+            image, fg = self.create_image()
+            draw = ImageDraw.Draw(image)
+            
+            try:
+                fnt_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+                fnt = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
+            except:
+                fnt_title = fnt = ImageFont.load_default()
+            
+            # Title
+            self.draw_text_centered(draw, "SYSTEM MONITOR", 2, None, 14, fg)
+            
+            y = 20
+            
+            # CPU Temperature
+            cpu_temp = self.get_cpu_temp()
+            draw.text((5, y), f"CPU Temp: {cpu_temp}", font=fnt, fill=fg)
+            y += 13
+            
+            # CPU Usage
+            cpu_usage = self.get_cpu_usage()
+            draw.text((5, y), f"CPU Usage: {cpu_usage}", font=fnt, fill=fg)
+            y += 13
+            
+            # Memory
+            mem_info = self.get_memory_info()
+            draw.text((5, y), f"Memory: {mem_info}", font=fnt, fill=fg)
+            y += 13
+            
+            # Disk Usage
+            disk_info = self.get_disk_usage()
+            draw.text((5, y), f"Disk: {disk_info}", font=fnt, fill=fg)
+            y += 13
+            
+            # Uptime
+            uptime = self.get_uptime()
+            draw.text((5, y), f"Uptime: {uptime}", font=fnt, fill=fg)
+            y += 13
+            
+            # Python version
+            python_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+            draw.text((5, y), f"Python: {python_ver}", font=fnt, fill=fg)
+            
+            draw.text((5, 108), "ESC=Back", font=fnt, fill=fg)
+            
+            self.display.show(image, partial=True)
+            
+            # Check for ESC to exit, otherwise update every 2 seconds
+            start_time = time.time()
+            while time.time() - start_time < 2:
+                key = self.keyboard.get_key()
+                if key == 'ESC':
+                    return 'main_menu'
+                time.sleep(0.1)
 
 
 class SettingsApp(App):
@@ -1346,6 +1641,9 @@ def main():
                 current_app = app.run()
             elif current_app == 'weather':
                 app = WeatherApp(display, keyboard, notes_manager, settings_manager)
+                current_app = app.run()
+            elif current_app == 'system_monitor':
+                app = SystemMonitorApp(display, keyboard, notes_manager, settings_manager)
                 current_app = app.run()
             elif current_app == 'settings':
                 app = SettingsApp(display, keyboard, notes_manager, settings_manager)
